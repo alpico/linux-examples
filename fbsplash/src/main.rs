@@ -1,8 +1,7 @@
 /// Drawing a PPM into the framebuffer.
-
 use std::env;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write, Seek, SeekFrom};
+use std::io::{BufRead, BufReader};
 use std::os::fd::AsRawFd;
 extern crate libc;
 
@@ -11,7 +10,8 @@ extern crate libc;
 struct FBVarScreenInfo {
     xres: u32,
     yres: u32,
-    _x: [u32;4],
+    xres_virtual: u32,
+    yres_virtual: u32,
     xofs: u32,
     yofs: u32,
     bpp: u32,
@@ -29,70 +29,102 @@ struct FBFixScreenInfo {
 }
 
 #[derive(Debug)]
-struct FramebufferDevice {
-    file: File,
+struct FramebufferDevice<'a> {
     var: FBVarScreenInfo,
     fix: FBFixScreenInfo,
+    slice: &'a mut [u8]
 }
 
-impl FramebufferDevice {
+impl FramebufferDevice<'_> {
     fn new(filename: &str) -> Option<Self> {
-        let file = File::options().write(true).open(filename).ok()?;
+        let file = File::options().read(true).write(true).open(filename).ok()?;
         let mut var: FBVarScreenInfo = Default::default();
         let mut fix: FBFixScreenInfo = Default::default();
         unsafe {
             assert_eq!(0, libc::ioctl(file.as_raw_fd(), 0x4600, &mut var));
             assert_eq!(0, libc::ioctl(file.as_raw_fd(), 0x4602, &mut fix));
         }
-        Some(Self { file, var, fix } )
+        let slice =  unsafe {
+            let len = fix.line_len * var.yres_virtual as usize;
+            let ptr = libc::mmap(
+                core::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                file.as_raw_fd(),
+                0,
+            );
+            assert_ne!(ptr, libc::MAP_FAILED);
+            core::slice::from_raw_parts_mut(ptr as *mut u8, len)
+        };
+        
+        Some(Self { var, fix, slice })
     }
 
-    /// Convert from rgb to rgba
+    /// Convert from bgr to rgba
+    #[inline(never)]
     fn convert(dst: &mut [u8], src: &[u8]) {
         for o in 0..3 {
             for i in 0..src.len() / 3 {
-                dst[i*4 + o] = src[i*3 + 2 - o]
+                dst[i * 4 + o] = src[i * 3 + 2 - o];
             }
         }
     }
-    
-    /// Bitblt a raw RBG image data from the reader.
-    fn bitblt(&mut self, reader: &mut dyn BufRead, width: usize, height: usize) ->Option<()> {
+
+    /// Bitblt a raw RBG image from the reader.
+    pub fn bitblt(&mut self, reader: &mut dyn BufRead, width: usize, height: usize, ofsx: isize) -> Option<()> {
+        // bytes required per output pixel
         let bytes = self.var.bpp as usize / 8;
 
-        // the output buffer
-        let mut buf = vec!();
-        buf.resize(self.var.xres as usize * bytes, 0);
-
         // the line in the image
-        let mut line = vec!();
+        let mut line = vec![];
         line.resize(width as usize * 3, 0);
-        
+
+
+        // position the image in the center
         let posy = (std::cmp::max(self.var.yres as usize, height) - height) / 2;
-        let posx = (std::cmp::max(self.var.xres as usize, width) - width) / 2;
+        let posx = (std::cmp::max(self.var.xres as usize, width) - width) / 2 + ofsx as usize;
         for i in 0..self.var.yres as usize {
-            let ofs = self.fix.line_len * (i + self.var.yofs as usize) + self.var.xofs as usize * bytes;
-            self.file.seek(SeekFrom::Start(ofs as u64)).unwrap();
+            let ofs =
+                self.fix.line_len * (i + self.var.yofs as usize) + self.var.xofs as usize * bytes;
+            let output = &mut self.slice[ofs..ofs + self.fix.line_len];
             if i >= posy && i < posy + height {
                 // inside the picture
+                output[..posx * bytes].fill(0);
                 reader.read_exact(&mut line).unwrap();
-                Self::convert(&mut buf[posx * bytes..], &line);
-                self.file.write_all(&buf).unwrap();
-            }
-            else {
-                if i == posy + height {
-                    buf.fill(0);
-                }
-                // outside the picture
-                self.file.write_all(&buf).unwrap();
+                Self::convert(&mut output[posx * bytes..], &line);
+                output[(posx + width) * bytes..].fill(0);
+            } else {
+                output.fill(0);
             }
         }
-     Some(())   
+        Some(())
+    }
+
+
+    // Synchronize the memory mapping with the physical framebuffer.
+    pub fn sync(&mut self) {
+        unsafe {
+            assert_eq!(0, libc::msync(
+                self.slice.as_mut_ptr() as *mut libc::c_void,
+                self.slice.len(),
+                libc::MS_SYNC,
+            ));
+        }
     }
 }
 
-
-
+impl Drop for FramebufferDevice<'_> {
+    // Unmap the memory mapping.
+    fn drop(&mut self) {
+        unsafe {
+            assert_eq!(0, libc::munmap(
+                self.slice.as_mut_ptr() as *mut libc::c_void,
+                self.slice.len(),
+            ));
+        }
+    }
+}
 
 /// This parses all P{1-6} headers.
 fn parse_netbpm_header(reader: &mut dyn BufRead) -> Option<(String, usize, usize, usize)> {
@@ -113,22 +145,33 @@ fn parse_netbpm_header(reader: &mut dyn BufRead) -> Option<(String, usize, usize
                 }
             }
             _ =>
-                // some char
-                state[pos].push_str(std::str::from_utf8(&ch).ok()?),
+            // some char
+            {
+                state[pos].push_str(std::str::from_utf8(&ch).ok()?)
+            }
         }
     }
-    Some((state[0].clone(), state[1].parse::<usize>().ok()?, state[2].parse::<usize>().ok()?, state[3].parse::<usize>().ok()?))
+    Some((
+        state[0].clone(),
+        state[1].parse::<usize>().ok()?,
+        state[2].parse::<usize>().ok()?,
+        state[3].parse::<usize>().ok()?,
+    ))
 }
 
-
-fn main() -> Result<(), std::io::Error>{
+fn main() -> Result<(), std::io::Error> {
     let mut f = FramebufferDevice::new("/dev/fb0").unwrap();
-    for filename in env::args().skip(1) {
-        let file = File::open(filename.clone())?;
-        let mut reader = BufReader::new(file);
-        let (magic, width, height, depth) = parse_netbpm_header(&mut reader).unwrap();
-        println!("{filename} {magic} {width}x{height}-{depth}");
-        f.bitblt(&mut reader, width, height);
+    for frame in 0..256 {
+        for filename in env::args().skip(1) {
+            let file = File::open(filename.clone())?;
+            let mut reader = BufReader::new(file);
+            let (magic, width, height, depth) = parse_netbpm_header(&mut reader).unwrap();
+            if frame == 0 {
+                println!("{filename} {magic} {width}x{height}-{depth}");
+            }
+            f.bitblt(&mut reader, width, height, frame);
+        }
+        f.sync();
     }
     Ok(())
 }
