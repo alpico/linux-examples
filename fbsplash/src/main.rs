@@ -11,7 +11,9 @@ extern crate libc;
 struct FBVarScreenInfo {
     xres: u32,
     yres: u32,
-    _x: [u32; 4],
+    _x: [u32;4],
+    xofs: u32,
+    yofs: u32,
     bpp: u32,
     _y: u32,
     _z: [u64; 16],
@@ -21,9 +23,7 @@ struct FBVarScreenInfo {
 #[repr(C)]
 struct FBFixScreenInfo {
     id: [u8; 16],
-    smem_start: usize,
-    smem_len: u32,
-    _x: [u8; 18],
+    _x: [u8; 30],
     line_len: usize,
     _y: [u8; 10],
 }
@@ -60,10 +60,6 @@ impl FramebufferDevice {
     fn bitblt(&mut self, reader: &mut dyn BufRead, width: usize, height: usize) ->Option<()> {
         let bytes = self.var.bpp as usize / 8;
 
-        // the background line
-        let mut empty = vec!();
-        empty.resize(self.var.xres as usize * bytes, 0);
-
         // the output buffer
         let mut buf = vec!();
         buf.resize(self.var.xres as usize * bytes, 0);
@@ -75,19 +71,20 @@ impl FramebufferDevice {
         let posy = (std::cmp::max(self.var.yres as usize, height) - height) / 2;
         let posx = (std::cmp::max(self.var.xres as usize, width) - width) / 2;
         for i in 0..self.var.yres as usize {
-            let ofs = self.fix.line_len * i;
+            let ofs = self.fix.line_len * (i + self.var.yofs as usize) + self.var.xofs as usize * bytes;
             self.file.seek(SeekFrom::Start(ofs as u64)).unwrap();
             if i >= posy && i < posy + height {
                 // inside the picture
-                self.file.write_all(&empty[..posx * bytes]).unwrap();
                 reader.read_exact(&mut line).unwrap();
-                Self::convert(&mut buf, &line);
+                Self::convert(&mut buf[posx * bytes..], &line);
                 self.file.write_all(&buf).unwrap();
-                self.file.write_all(&empty[..posx * bytes]).unwrap();
             }
             else {
+                if i == posy + height {
+                    buf.fill(0);
+                }
                 // outside the picture
-                self.file.write_all(&empty).unwrap();
+                self.file.write_all(&buf).unwrap();
             }
         }
      Some(())   
@@ -111,7 +108,9 @@ fn parse_netbpm_header(reader: &mut dyn BufRead) -> Option<(String, usize, usize
             }
             x if x.is_ascii_whitespace() => {
                 // new token
-                pos += 1;
+                if state[pos].len() > 0 {
+                    pos += 1;
+                }
             }
             _ =>
                 // some char
