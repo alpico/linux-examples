@@ -183,7 +183,7 @@ fn main() -> Result<(), std::io::Error> {
             }
             f.bitblt(&mut reader, width, height, frame);
         }
-        f.sync()?;
+        _ = f.sync();
     }
     Ok(())
 }
