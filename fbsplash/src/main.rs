@@ -32,19 +32,23 @@ struct FBFixScreenInfo {
 struct FramebufferDevice<'a> {
     var: FBVarScreenInfo,
     fix: FBFixScreenInfo,
-    slice: &'a mut [u8]
+    slice: &'a mut [u8],
 }
 
 impl FramebufferDevice<'_> {
-    fn new(filename: &str) -> Option<Self> {
-        let file = File::options().read(true).write(true).open(filename).ok()?;
+    fn new(filename: &str) -> Result<Self, std::io::Error> {
+        let file = File::options().read(true).write(true).open(filename)?;
         let mut var: FBVarScreenInfo = Default::default();
         let mut fix: FBFixScreenInfo = Default::default();
         unsafe {
-            assert_eq!(0, libc::ioctl(file.as_raw_fd(), 0x4600, &mut var));
-            assert_eq!(0, libc::ioctl(file.as_raw_fd(), 0x4602, &mut fix));
+            if libc::ioctl(file.as_raw_fd(), 0x4600, &mut var) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::ioctl(file.as_raw_fd(), 0x4602, &mut fix) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
         }
-        let slice =  unsafe {
+        let slice = unsafe {
             let len = fix.line_len * var.yres_virtual as usize;
             let ptr = libc::mmap(
                 core::ptr::null_mut(),
@@ -54,15 +58,17 @@ impl FramebufferDevice<'_> {
                 file.as_raw_fd(),
                 0,
             );
-            assert_ne!(ptr, libc::MAP_FAILED);
+            if ptr == libc::MAP_FAILED {
+                return Err(std::io::Error::last_os_error());
+            }
+
             core::slice::from_raw_parts_mut(ptr as *mut u8, len)
         };
-        
-        Some(Self { var, fix, slice })
+
+        Ok(Self { var, fix, slice })
     }
 
     /// Convert from bgr to rgba
-    #[inline(never)]
     fn convert(dst: &mut [u8], src: &[u8]) {
         for o in 0..3 {
             for i in 0..src.len() / 3 {
@@ -72,14 +78,18 @@ impl FramebufferDevice<'_> {
     }
 
     /// Bitblt a raw RBG image from the reader.
-    pub fn bitblt(&mut self, reader: &mut dyn BufRead, width: usize, height: usize, ofsx: isize) -> Option<()> {
+    pub fn bitblt(
+        &mut self,
+        reader: &mut dyn BufRead,
+        width: usize,
+        height: usize,
+        ofsx: isize,
+    ) -> Option<()> {
         // bytes required per output pixel
         let bytes = self.var.bpp as usize / 8;
 
         // the line in the image
-        let mut line = vec![];
-        line.resize(width as usize * 3, 0);
-
+        let mut line = vec![0; width * 3];
 
         // position the image in the center
         let posy = (std::cmp::max(self.var.yres as usize, height) - height) / 2;
@@ -101,28 +111,30 @@ impl FramebufferDevice<'_> {
         Some(())
     }
 
-
     // Synchronize the memory mapping with the physical framebuffer.
-    pub fn sync(&mut self) {
-        unsafe {
-            assert_eq!(0, libc::msync(
+    pub fn sync(&mut self) -> Result<(), std::io::Error> {
+        if 0 == unsafe {
+            libc::msync(
                 self.slice.as_mut_ptr() as *mut libc::c_void,
                 self.slice.len(),
                 libc::MS_SYNC,
-            ));
+            )
+        } {
+            return Ok(());
         }
+        Err(std::io::Error::last_os_error())
     }
 }
 
 impl Drop for FramebufferDevice<'_> {
     // Unmap the memory mapping.
     fn drop(&mut self) {
-        unsafe {
-            assert_eq!(0, libc::munmap(
+        _ = unsafe {
+            libc::munmap(
                 self.slice.as_mut_ptr() as *mut libc::c_void,
                 self.slice.len(),
-            ));
-        }
+            )
+        };
     }
 }
 
@@ -140,7 +152,7 @@ fn parse_netbpm_header(reader: &mut dyn BufRead) -> Option<(String, usize, usize
             }
             x if x.is_ascii_whitespace() => {
                 // new token
-                if state[pos].len() > 0 {
+                if !state[pos].is_empty() {
                     pos += 1;
                 }
             }
@@ -160,7 +172,7 @@ fn parse_netbpm_header(reader: &mut dyn BufRead) -> Option<(String, usize, usize
 }
 
 fn main() -> Result<(), std::io::Error> {
-    let mut f = FramebufferDevice::new("/dev/fb0").unwrap();
+    let mut f = FramebufferDevice::new("/dev/fb0")?;
     for frame in 0..256 {
         for filename in env::args().skip(1) {
             let file = File::open(filename.clone())?;
@@ -171,7 +183,7 @@ fn main() -> Result<(), std::io::Error> {
             }
             f.bitblt(&mut reader, width, height, frame);
         }
-        f.sync();
+        f.sync()?;
     }
     Ok(())
 }
