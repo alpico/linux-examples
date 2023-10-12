@@ -1,10 +1,9 @@
-/// Drawing a PPM into the framebuffer.
-
-use std::io::BufReader;
-use std::fs::File;
-use std::env;
-use fbsplash::FramebufferDevice;
 use fbsplash::parse_netbpm_header;
+use fbsplash::FramebufferDevice;
+use std::env;
+use std::fs::File;
+/// Drawing a PPM into the framebuffer.
+use std::io::BufReader;
 
 fn main() -> Result<(), std::io::Error> {
     let mut f = FramebufferDevice::new("/dev/fb0")?;

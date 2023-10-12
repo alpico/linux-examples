@@ -1,6 +1,6 @@
 //! Drawing a PPM splash screen into a Linux Framebuffer.
 use std::fs::File;
-use std::io::{BufRead};
+use std::io::BufRead;
 use std::os::fd::AsRawFd;
 extern crate libc;
 
@@ -35,7 +35,7 @@ pub struct FramebufferDevice<'a> {
 }
 
 impl FramebufferDevice<'_> {
-    /// Opens a framebuffer and memory-mappes it.
+    /// Opens a framebuffer and memory-map it.
     pub fn new(filename: &str) -> Result<Self, std::io::Error> {
         let file = File::options().read(true).write(true).open(filename)?;
         let mut var: FBVarScreenInfo = Default::default();
