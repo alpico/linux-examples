@@ -28,13 +28,13 @@ struct FBFixScreenInfo {
 }
 
 #[derive(Debug)]
-pub struct FramebufferDevice<'a> {
+pub struct Framebuffer<'a> {
     var: FBVarScreenInfo,
     fix: FBFixScreenInfo,
     slice: &'a mut [u8],
 }
 
-impl FramebufferDevice<'_> {
+impl Framebuffer<'_> {
     /// Opens a framebuffer and memory-map it.
     pub fn new(filename: &str) -> Result<Self, std::io::Error> {
         let file = File::options().read(true).write(true).open(filename)?;
@@ -126,7 +126,7 @@ impl FramebufferDevice<'_> {
     }
 }
 
-impl Drop for FramebufferDevice<'_> {
+impl Drop for Framebuffer<'_> {
     // Unmap the memory mapping.
     fn drop(&mut self) {
         _ = unsafe {
