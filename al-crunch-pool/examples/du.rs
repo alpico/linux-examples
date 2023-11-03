@@ -1,5 +1,5 @@
 //! Count bytes in a directory tree - optimized version.
-use al_crunch_pool::{Pool, PoolOptions, Sender};
+use al_crunch_pool::{execute, Options, Sender};
 use std::os::linux::fs::MetadataExt;
 use std::path::Path;
 
@@ -37,7 +37,7 @@ fn visit(
 }
 
 /// The state to be held by each worker.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct WorkerState {
     size: u64,
     count: usize,
@@ -45,21 +45,27 @@ pub struct WorkerState {
 
 fn main() -> std::io::Result<()> {
     for path in std::env::args().skip(1) {
-        let options = PoolOptions::default().one_is_zero().io_bound();
-        let pool = Pool::new(options, (), |_| Default::default(), |x: WorkerState| x);
+        let options = Options::default().one_is_zero().io_bound();
 
-        let mut state = WorkerState::default();
-        let sender = pool.sender().clone();
         let pn = path.clone();
-        pool.sender().send(&mut state, move |state| {
-            let _ = visit(&sender, Path::new(&pn), state);
-        });
+        let state = execute(
+            options.clone(),
+            |_| Default::default(),
+            move |sender| {
+                let mut state = Default::default();
+                let sender2 = sender.clone();
+                sender.send(&mut state, move |state| {
+                    visit(&sender2, Path::new(&pn), state).unwrap();
+                });
+                state
+            },
+            |mut res, v| {
+                res.size += v.size;
+                res.count += v.count;
+                res
+            },
+        );
 
-        // wait until all workers are finished
-        for x in pool.join().iter() {
-            state.size += x.size;
-            state.count += x.count;
-        }
         println!("{path} {} {}", state.count, state.size << 9);
     }
     Ok(())

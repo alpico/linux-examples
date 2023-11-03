@@ -2,14 +2,14 @@
 
 /// Collect the config options to make a pool.
 #[derive(Clone, Debug)]
-pub struct PoolOptions {
+pub struct Options {
     threads: Option<usize>,
     pub(crate) slots: usize,
     one_is_zero: bool,
     io_bound: bool,
 }
 
-impl PoolOptions {
+impl Options {
     /// Get the number of threads.
     pub fn get_threads(&self) -> usize {
         match self.threads.unwrap_or(
@@ -55,7 +55,7 @@ impl PoolOptions {
     }
 }
 
-impl Default for PoolOptions {
+impl Default for Options {
     fn default() -> Self {
         Self {
             threads: None,

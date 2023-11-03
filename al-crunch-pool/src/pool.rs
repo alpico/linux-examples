@@ -1,6 +1,6 @@
 //! Thread pool.
 
-use crate::{channel, sender, PoolOptions, Sender};
+use crate::{channel, sender, Options, Sender};
 
 /// The thread pool that executes the jobs.
 ///
@@ -32,7 +32,7 @@ impl<W: 'static, X: Send + 'static> Pool<W, X> {
     /// - zero threads means that all requests will be executed synchronously
     /// - the `func` maps the param into the worker state
     pub fn new<T: Send + Clone + 'static>(
-        options: PoolOptions,
+        options: Options,
         param: T,
         create: fn(T) -> W,
         destroy: fn(W) -> X,
@@ -68,6 +68,6 @@ impl<W: 'static, X: Send + 'static> Pool<W, X> {
 /// Convinience function.
 impl<W: Default + Send + 'static> Default for Pool<W, W> {
     fn default() -> Self {
-        crate::Pool::new(PoolOptions::default(), (), |_| Default::default(), |x| x)
+        crate::Pool::new(Options::default(), (), |_| Default::default(), |x| x)
     }
 }

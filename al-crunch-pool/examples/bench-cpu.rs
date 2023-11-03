@@ -1,6 +1,6 @@
 //! Number crunching benchmark. Checking AVX2 vector add operations.
-use core::arch::asm;
 use al_crunch_pool::*;
+use core::arch::asm;
 use std::sync::{atomic, Arc};
 
 #[derive(Default)]
@@ -28,7 +28,7 @@ fn main() {
     };
     println!("{} for {MILLIS} ms", info.0);
 
-    let options = PoolOptions::default();
+    let options = Options::default();
     let pool = Pool::new(
         options.clone(),
         (),

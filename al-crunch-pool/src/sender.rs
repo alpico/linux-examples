@@ -11,7 +11,10 @@ impl<W> Sender<W> {
     /// Send the message.
     ///
     /// The job is executed synchronously if the bounded channel is full.
-    pub fn send(&self, worker: &mut W, job: impl FnOnce(&mut W) + Send + Sized + 'static) {
+    pub fn send<F>(&self, worker: &mut W, job: F)
+    where
+        F: FnOnce(&mut W) + Send + 'static,
+    {
         // execute the jobs - this also handles the zero-slots case
         if self.0.is_full() {
             job(worker);

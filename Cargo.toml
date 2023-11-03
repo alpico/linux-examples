@@ -1,0 +1,3 @@
+[workspace]
+members = ["al-*", "fbsplash"]
+resolver="2"

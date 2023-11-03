@@ -61,9 +61,6 @@ fn visit(sender: &Sender<WorkerState>, file: FileDescriptor, state: &mut WorkerS
     }
 }
 
-
-
-
 /// A type to wrap a file-descriptor to close on drop.
 struct FileDescriptor(i32);
 
@@ -84,7 +81,6 @@ impl Drop for FileDescriptor {
     }
 }
 
-
 #[derive(Default)]
 struct WorkerState {
     count: u64,
@@ -96,7 +92,7 @@ fn main() {
     for path in std::env::args().skip(1) {
         let cpath = std::ffi::CString::new(path.clone()).unwrap();
         let pool = Pool::default();
-        
+
         let state = &mut Default::default();
         let sender = pool.sender().clone();
         let fd = FileDescriptor::new(&curwd, cpath.as_ptr()).unwrap();

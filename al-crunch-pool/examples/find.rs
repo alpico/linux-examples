@@ -1,5 +1,5 @@
 //! List a directory tree.
-use al_crunch_pool::{PoolOptions, Sender};
+use al_crunch_pool::{Options, Sender};
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
@@ -46,7 +46,7 @@ impl Default for WorkerState {
 }
 
 fn main() -> std::io::Result<()> {
-    let pool = PoolOptions::default().one_is_zero().io_bound().build();
+    let pool = Options::default().one_is_zero().io_bound().build();
     for path in std::env::args().skip(1) {
         // output the path to be compatible with find(1)
         println!("{path}");
