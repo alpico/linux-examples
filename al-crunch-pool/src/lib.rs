@@ -17,11 +17,12 @@ pub use pool::Pool;
 /// create: a closure to create per-worker states
 /// init: a closure to submit the first jobs.
 /// combine: a closure to combine all states into one result
-pub fn execute<W: Send, X>(
+pub fn execute<W, Y: Send, X>(
     options: Options,
     create: impl Fn(usize) -> W + Send + Copy,
+    destroy: impl Fn(W) -> Y + Send + Copy,
     init: impl FnOnce(&Sender<W>) -> X,
-    combine: impl Fn(X, W) -> X,
+    combine: impl Fn(X, Y) -> X,
 ) -> X {
     let threads = options.get_threads();
 
@@ -38,8 +39,8 @@ pub fn execute<W: Send, X>(
                     for job in receiver {
                         job(&mut state);
                     }
-                    // XXX this requires W to be send
-                    state
+                    
+                    destroy(state)
                 })
             })
             .collect();
