@@ -1,3 +1,3 @@
-# linux.core
+# linux-examples
 
 Linux related crates.

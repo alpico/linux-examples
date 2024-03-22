@@ -39,7 +39,7 @@ pub fn execute<W, Y: Send, X>(
                     for job in receiver {
                         job(&mut state);
                     }
-                    
+
                     destroy(state)
                 })
             })

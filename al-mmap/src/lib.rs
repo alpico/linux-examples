@@ -10,10 +10,14 @@ use std::{
 #[derive(Clone)]
 pub struct Mmap<'a>(pub &'a [u8]);
 
-
 impl<'a> Mmap<'a> {
     ///  Memory-mapping the file.  A length of zero means entire file.
-    pub fn new(filename: &str, direct: bool, mut length: u64, offset: i64) -> Result<Self, std::io::Error> {
+    pub fn new(
+        filename: &str,
+        direct: bool,
+        mut length: u64,
+        offset: i64,
+    ) -> Result<Self, std::io::Error> {
         let mut fd = OpenOptions::new()
             .read(true)
             .custom_flags(if direct { libc::O_DIRECT } else { 0 })
@@ -50,4 +54,3 @@ impl Drop for Mmap<'_> {
         self.0 = &[];
     }
 }
-
